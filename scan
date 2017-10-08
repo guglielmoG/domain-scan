@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Oct  7 18:53:13 2017
+
+@author: guglielmo
+"""
+
 #!/usr/bin/env python3
 
 import os
@@ -9,6 +16,7 @@ import logging
 import requests
 import importlib
 import shutil
+import json
 import csv
 from concurrent.futures import ThreadPoolExecutor
 
@@ -18,6 +26,7 @@ domain_suffix = options.get("suffix")
 utils.configure_logging(options)
 utils.mkdir_p(utils.cache_dir())
 utils.mkdir_p(utils.results_dir())
+csvPath = ""
 
 # some metadata about the scan itself
 start_time = utils.utc_timestamp()
@@ -67,20 +76,16 @@ def run(options=None):
             exc_type, exc_value, exc_traceback = sys.exc_info()
             logging.error("[%s] Scanner not found, or had an error during loading.\n\tERROR: %s\n\t%s" % (name, exc_type, exc_value))
             exit(1)
-
         # If the scanner has a canonical command, make sure it exists.
-        if hasattr(scanner, "command") and scanner.command and (not utils.try_command(scanner.command)):
+        if hasattr(scanner, "command") and scanner.command and (not True):
             logging.error("[%s] Command not found: %s" %
                           (name, scanner.command))
             exit(1)
-
         # Scanners can have an optional init/validation hook.
         if hasattr(scanner, "init") and scanner.init and (not scanner.init(options)):
             logging.error("[%s] Scanner's init hook returned false." % name)
             exit(1)
-
         scans.append(scanner)
-
     scan_domains(scans, domains)
 
 
@@ -91,26 +96,26 @@ def run(options=None):
 # Produces a CSV for each scan, with each domain and results.
 ###
 def scan_domains(scanners, domains):
-
     # Clear out existing result CSVs, to avoid inconsistent data.
     for result in glob.glob("%s/*.csv" % utils.results_dir()):
         os.remove(result)
-
     # Run through each scanner and open a file and CSV for each.
     handles = {}
+
     for scanner in scanners:
         name = scanner.__name__.split(".")[-1]  # e.g. 'pshtt'
         scanner_filename = "%s/%s.csv" % (utils.results_dir(), name)
+        csvPath = scanner_filename
         scanner_file = open(scanner_filename, 'w', newline='')
         scanner_writer = csv.writer(scanner_file)
         scanner_writer.writerow(["Domain", "Base Domain"] + scanner.headers)
-
+        
         handles[scanner] = {
             'file': scanner_file,
             'filename': scanner_filename,
             'writer': scanner_writer
         }
-
+    
     # The task wrapper that's parallelized using executor.map.
     def process_scan(params):
         scanner, domain, options = params
@@ -155,8 +160,23 @@ def scan_domains(scanners, domains):
         'end_time': utils.utc_timestamp(),
         'command': start_command
     }
+    convert(csvPath)
     utils.write(utils.json_for(metadata), "%s/meta.json" % utils.results_dir())
 
+# Copy csv database to json 
+def convert(csvPath):
+   jsonPath = csvPath[:len(csvPath)-4]+".json"
+   csvfile = open(csvPath, 'r')
+   jsonfile = open(jsonPath, 'w+')
+   fieldnames = ("Domain", "Base Domain", "Canonical URL", "Live", "Redirect", "Redirect to", "Valid HTTPS", "Defaults to HTTPS", "Downgrades HTTPS", "Strictly Forces HTTPS", "HTTPS Bad Chain", "HTTPS Bad Hostname", "HTTPS Excpired Cert", "HSTS", "HSTS Header", "HSTS Max Age","HSTS Entire Domain","HSTS Preload Ready", "HSTS Preload Pending", "HSTS Preloaded", "Base Domain HSTS Preloaded", "Domain Supports HTTPS", "Domain Enforces HTTPS", "Domain Uses String HSTS")
+   reader = csv.DictReader( csvfile, fieldnames)
+   for row in reader:
+       if not row["Domain"] == "Domain":
+           json.dump(row, jsonfile)
+           jsonfile.write('\n')
+   csvfile.close()
+   jsonfile.close()
+    
 
 # Yield domain names from a single string, or a CSV of them.
 def domains_from(arg):
@@ -175,4 +195,5 @@ def domains_from(arg):
 
 
 if __name__ == '__main__':
-    run(options)
+	print(options)
+	run(options)
